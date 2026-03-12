@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protocol Zero — Loader Preview</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="loader.css">
+</head>
+
+<body class="bg-black">
+    <!-- This file is just directly for testing the loader in isolation -->
+
+    <!-- LOADER WRAPPER -->
+    <div id="loader-wrapper">
+
+        <!-- ThreeJS WebGL Canvas for background particles -->
+        <canvas id="loader-canvas"></canvas>
+
+        <!-- Content Container -->
+        <div id="loader-content">
+
+            <!-- Glowing Radial Backdrop -->
+            <div id="loader-glow"></div>
+
+            <!-- Main Text -->
+            <div id="loader-logo-container">
+                <h1 id="loader-title">PROTOCOL <span class="text-accent">ZERO</span></h1>
+                <p id="loader-subtitle">Deb Gopal Dey</p>
+                <p id="loader-role">AI Systems Developer</p>
+            </div>
+
+            <!-- Minimal Loading Bar -->
+            <div id="loader-progress-wrapper">
+                <div id="loader-progress-bar"></div>
+            </div>
+            <div id="loader-progress-text">0%</div>
+
+        </div>
+    </div>
+
+    <!-- Dummy main content just to test the disappear effect -->
+    <main id="main-content"
+        style="opacity: 0; padding: 4rem; color: white; font-family: 'Outfit', sans-serif; text-align: center;">
+        <h1>Main Website Revealed</h1>
+        <p>The cinematic loading sequence has finished.</p>
+    </main>
+
+    <script src="loader.js"></script>
+</body>
+
+</html>

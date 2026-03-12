@@ -1,0 +1,164 @@
+/* =========================================================================
+   BASE STYLES & UTILITIES
+========================================================================= */
+body {
+    cursor: none;
+    /* Hide default for custom cursor */
+}
+
+/* Custom Scrollbar for sleekness */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0b0b0f;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #7C3AED;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #06B6D4;
+}
+
+/* Selected Text */
+::selection {
+    background: rgba(124, 58, 237, 0.4);
+    color: white;
+}
+
+/* Form Inputs */
+.form-input {
+    @apply w-full bg-white/5 border border-white/10 text-white font-outfit text-sm px-4 py-3 rounded-lg outline-none transition-all duration-300;
+}
+
+.form-input:focus {
+    @apply border-pz-accent bg-pz-accent/5 shadow-[0_0_0_2px_rgba(6, 182, 212, 0.1)];
+}
+
+/* =========================================================================
+   COMPONENTS
+========================================================================= */
+
+/* Glassmorphism Cards */
+.glass-card {
+    @apply bg-pz-card border border-pz-border rounded-2xl backdrop-blur-xl transition-all duration-300;
+}
+
+.glass-card:hover {
+    @apply border-pz-purple/50 bg-white/5 -translate-y-2 shadow-[0_20px_40px_rgba(0, 0, 0, 0.5), 0_0_30px_rgba(124, 58, 237, 0.15)];
+}
+
+/* Project Cards Image Zoom */
+.project-card .h-48 {
+    @apply transition-transform duration-500 ease-out;
+}
+
+.project-card:hover .h-48 {
+    background-size: 110%;
+    /* Faux zoom on gradient */
+}
+
+/* Skill Tags */
+.skill-tag {
+    @apply text-[0.7rem] font-medium px-2.5 py-1 rounded bg-pz-purple/10 border border-pz-purple/20 text-[#9F67FF] transition-colors duration-300;
+}
+
+.skill-tag.pz-accent {
+    @apply bg-pz-accent/10 border-pz-accent/20 text-pz-accent;
+}
+
+.skill-tag.pz-pink {
+    @apply bg-pz-pink/10 border-pz-pink/20 text-pz-pink;
+}
+
+.skill-tag.pz-white {
+    @apply bg-white/5 border-white/10 text-slate-300;
+}
+
+/* =========================================================================
+   ANIMATIONS & GLOWS
+========================================================================= */
+
+.hover-glow {
+    @apply transition-all duration-300;
+}
+
+.hover-glow:hover {
+    @apply text-pz-accent drop-shadow-[0_0_12px_rgba(6, 182, 212, 0.6)];
+}
+
+.glow-orb {
+    animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+@keyframes pulse-slow {
+
+    0%,
+    100% {
+        opacity: 0.5;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.8;
+        transform: scale(1.05);
+    }
+}
+
+.animate-pulse-slow {
+    animation: pulse-slow 4s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes spin-reverse {
+    100% {
+        transform: rotate(-360deg);
+    }
+}
+
+@keyframes spin-fast {
+    100% {
+        transform: rotate(720deg);
+    }
+}
+
+.animate-spin-slow {
+    animation: spin-slow 15s linear infinite;
+}
+
+.animate-spin-reverse {
+    animation: spin-reverse 20s linear infinite;
+}
+
+.animate-spin-fast {
+    animation: spin-fast 10s linear infinite;
+}
+
+/* =========================================================================
+   SCROLL REVEAL (Hidden state pre-GSAP)
+========================================================================= */
+.reveal {
+    opacity: 0;
+    transform: translateY(30px);
+}

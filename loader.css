@@ -1,0 +1,134 @@
+/* ========================================================
+   LOADER.CSS — Protocol Zero Cinematic Loading Screen
+   ======================================================== */
+
+:root {
+  --ld-bg: #07070a;
+  --ld-purple: #7C3AED;
+  --ld-blue: #06B6D4;
+  --ld-pink: #EC4899;
+  --ld-text: #F1F5F9;
+  --ld-muted: #64748B;
+  --font-syne: 'Space Grotesk', sans-serif;
+  --font-outfit: 'DM Sans', sans-serif;
+}
+
+/* STEP 1: Full screen dark overlay */
+#pz-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: var(--ld-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* STEP 2: ThreeJS Canvas (particle background) */
+#pz-loader-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Content wrapper — z-index above canvas */
+#pz-loader-inner {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  /* STEP 3 initial state: opacity 0, scale 0.9 */
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+/* STEP 4: Blurred radial glow pulse behind text */
+#pz-loader-glow {
+  position: absolute;
+  width: 340px;
+  height: 340px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse at center,
+      rgba(124, 58, 237, 0.32) 0%,
+      rgba(6, 182, 212, 0.14) 45%,
+      transparent 70%);
+  filter: blur(40px);
+  border-radius: 50%;
+  opacity: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* STEP 3: Logo text */
+#pz-loader-title {
+  font-family: var(--font-syne);
+  font-size: clamp(1.5rem, 3.2vw, 2.2rem);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.22em;
+  line-height: 1;
+  margin-bottom: 0.7rem;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.06);
+  text-transform: uppercase;
+}
+
+#pz-loader-title span {
+  /* Cyan accent for "ZERO" */
+  color: var(--ld-blue);
+  text-shadow: 0 0 18px rgba(6, 182, 212, 0.5);
+}
+
+#pz-loader-name {
+  font-family: var(--font-outfit);
+  font-size: clamp(0.85rem, 1.8vw, 1rem);
+  font-weight: 400;
+  color: rgba(241, 245, 249, 0.7);
+  letter-spacing: 0.06em;
+  margin-bottom: 0.2rem;
+}
+
+#pz-loader-role {
+  font-family: var(--font-outfit);
+  font-size: clamp(0.75rem, 1.5vw, 0.875rem);
+  font-weight: 300;
+  color: var(--ld-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 2.5rem;
+}
+
+/* STEP 5: Thin neon progress bar */
+#pz-loader-track {
+  width: min(280px, 62vw);
+  height: 2px;
+  background: rgba(124, 58, 237, 0.12);
+  border-radius: 99px;
+  overflow: hidden;
+  position: relative;
+}
+
+#pz-loader-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--ld-purple), var(--ld-blue));
+  border-radius: 99px;
+  box-shadow: 0 0 12px var(--ld-purple), 0 0 24px rgba(6, 182, 212, 0.35);
+}
+
+#pz-loader-pct {
+  font-family: var(--font-outfit);
+  font-size: 0.68rem;
+  color: rgba(6, 182, 212, 0.6);
+  letter-spacing: 0.12em;
+  text-align: right;
+  margin-top: 0.45rem;
+  opacity: 0;
+}
