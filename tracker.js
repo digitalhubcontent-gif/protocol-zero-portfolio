@@ -1,116 +1,171 @@
 ﻿/**
- * Protocol Zero — Real-Time Telegram Analytics Tracker
- * Fires instant Telegram notifications for:
- *   • Page Visit  (with full visitor profile + IP geolocation)
- *   • Scroll Depth milestones (25 / 50 / 75 / 100 %)
- *   • Every external link / project click
- *   • Session Summary on exit (time, max scroll, all clicks)
+ * Protocol Zero — Real-Time Telegram Analytics Tracker v2
+ * Fixed: bot filtering, Instagram IAB detection, session dedup,
+ *        reliable delivery, session minimum time, better geo fallback
  */
 (function () {
   "use strict";
 
+  /* ─── BOT / AUTOMATION GUARD ──────────────────────────────────
+     Skip Vercel deploy-preview bots, Lighthouse, Puppeteer, etc.
+     Signs of a bot: webdriver flag, headless UA, 800x600 screen,
+     missing language list, or a known bot UA string.
+  ──────────────────────────────────────────────────────────────── */
+  var ua = navigator.userAgent || "";
+
+  if (
+    navigator.webdriver === true ||
+    /headless|phantomjs|puppeteer|selenium|bot|crawler|spider|lighthouse|prerender|googlebot|bingbot|facebookexternalhit/i.test(ua) ||
+    (screen.width === 800 && screen.height === 600) ||
+    !navigator.languages ||
+    navigator.languages.length === 0
+  ) { return; }
+
   /* ─── CONFIG ──────────────────────────────────────────────── */
-  const BOT_TOKEN = "8698380996:AAGtAravHhmLEaK8aLEhAhmkryu6Oz0VlEw";
-  const CHAT_ID   = "989740810";
-  const API_URL   = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+  var BOT_TOKEN = "8698380996:AAGtAravHhmLEaK8aLEhAhmkryu6Oz0VlEw";
+  var CHAT_ID   = "989740810";
+  var API_URL   = "https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage";
+  var MIN_SESSION_MS = 8000; // ignore sessions shorter than 8 seconds (bots)
 
   /* ─── SESSION STATE ───────────────────────────────────────── */
-  const session = {
+  var session = {
     startTime    : Date.now(),
     maxScroll    : 0,
-    scrollFired  : new Set(),
+    scrollFired  : [],
     clicks       : [],
     projectClicks: {},
-    geoInfo      : null,
     visitSent    : false,
     summarySent  : false,
   };
 
-  /* ─── TELEGRAM SENDER ─────────────────────────────────────── */
+  /* ─── DEDUPLICATION — one visit alert per browser tab session */
+  // If the user opens the same tab and page re-fires (e.g., soft nav)
+  // we skip duplicate visit messages using sessionStorage.
+  var SESSION_KEY = "pz_tracker_v2";
+  try {
+    if (sessionStorage.getItem(SESSION_KEY)) {
+      session.visitSent = true; // already sent for this tab session
+    } else {
+      sessionStorage.setItem(SESSION_KEY, "1");
+    }
+  } catch(e) {}
+
+  /* ─── RELIABLE TELEGRAM SENDER ────────────────────────────────
+     Always use fetch with keepalive:true — more reliable than
+     sendBeacon for the Telegram Bot API (which requires JSON body).
+     sendBeacon is only used as absolute last resort on page-unload.
+  ──────────────────────────────────────────────────────────────── */
   function tg(text) {
-    const body = JSON.stringify({
+    var body = JSON.stringify({
       chat_id   : CHAT_ID,
       text      : text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
     });
-    if (navigator.sendBeacon) {
-      const blob = new Blob([body], { type: "application/json" });
-      navigator.sendBeacon(API_URL, blob);
-    } else {
+
+    var sent = false;
+
+    // Primary: fetch with keepalive (survives page close in modern browsers)
+    try {
       fetch(API_URL, {
-        method : "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
+        method  : "POST",
+        headers : { "Content-Type": "application/json" },
+        body    : body,
         keepalive: true,
-      }).catch(() => {});
+      }).then(function() { sent = true; }).catch(function() {});
+    } catch(e) {}
+
+    // Fallback on page-unload: sendBeacon
+    if (!sent && navigator.sendBeacon) {
+      try {
+        var blob = new Blob([body], { type: "application/json" });
+        navigator.sendBeacon(API_URL, blob);
+      } catch(e) {}
     }
   }
 
   /* ─── HELPERS ─────────────────────────────────────────────── */
-  function scrollEmoji(pct) {
-    if (pct >= 100) return "\uD83C\uDFC1";
-    if (pct >= 75)  return "\uD83D\uDD25";
-    if (pct >= 50)  return "\u26A1";
-    return "\uD83D\uDC40";
-  }
-
-  function deviceEmoji(ua) {
-    if (/mobile|android|iphone|ipad/i.test(ua)) return "\uD83D\uDCF1";
-    if (/tablet/i.test(ua)) return "\uD83D\uDCF2";
-    return "\uD83D\uDDA5\uFE0F";
-  }
-
   function osName(ua) {
-    if (/Windows NT 10|Windows 11/i.test(ua)) return "Windows 10/11";
-    if (/Windows NT 6\.3/i.test(ua))          return "Windows 8.1";
-    if (/Windows NT 6\.1/i.test(ua))          return "Windows 7";
-    if (/Mac OS X/i.test(ua))                 return "macOS";
-    if (/Android/i.test(ua))                  return "Android";
-    if (/iPhone|iPad/i.test(ua))              return "iOS";
-    if (/Linux/i.test(ua))                    return "Linux";
+    if (/Windows NT 10\.0|Windows 11/i.test(ua)) return "Windows 10/11";
+    if (/Windows NT 6\.3/i.test(ua))             return "Windows 8.1";
+    if (/Windows NT 6\.1/i.test(ua))             return "Windows 7";
+    if (/iPhone/i.test(ua))                      return "iOS (iPhone)";
+    if (/iPad/i.test(ua))                        return "iOS (iPad)";
+    if (/Android/i.test(ua))                     return "Android";
+    if (/Mac OS X/i.test(ua))                    return "macOS";
+    if (/Linux/i.test(ua))                       return "Linux";
     return "Unknown OS";
   }
 
   function browserName(ua) {
-    if (/Edg\//i.test(ua))                            return "Edge";
-    if (/OPR\//i.test(ua))                            return "Opera";
-    if (/Firefox\//i.test(ua))                        return "Firefox";
+    // Order matters — check specific UA fragments first
+    if (/Instagram/i.test(ua))  return "Instagram IAB";  // Instagram in-app browser
+    if (/FBAV|FBAN/i.test(ua))  return "Facebook IAB";
+    if (/LinkedInApp/i.test(ua)) return "LinkedIn IAB";
+    if (/Twitter/i.test(ua))    return "Twitter IAB";
+    if (/Edg\//i.test(ua))      return "Edge";
+    if (/OPR\//i.test(ua))      return "Opera";
+    if (/SamsungBrowser/i.test(ua)) return "Samsung Browser";
+    if (/Firefox\//i.test(ua))  return "Firefox";
+    if (/CriOS/i.test(ua))      return "Chrome (iOS)";
+    if (/FxiOS/i.test(ua))      return "Firefox (iOS)";
     if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) return "Safari";
-    if (/Chrome\//i.test(ua))                         return "Chrome";
+    if (/Chrome\//i.test(ua))   return "Chrome";
     return "Unknown Browser";
   }
 
+  function deviceType(ua) {
+    if (/iPhone/i.test(ua))                       return "iPhone";
+    if (/iPad/i.test(ua))                         return "iPad";
+    if (/Android.*Mobile/i.test(ua))              return "Android Phone";
+    if (/Android/i.test(ua))                      return "Android Tablet";
+    if (/Mobile|tablet/i.test(ua))                return "Mobile";
+    return "Desktop";
+  }
+
   function referrerLabel(ref) {
+    // Check in-app browser UA first — Instagram/FB strip document.referrer
+    if (/Instagram/i.test(ua)) return "Instagram (In-App Browser)";
+    if (/FBAV|FBAN/i.test(ua)) return "Facebook (In-App Browser)";
+
     if (!ref) return "Direct / None";
     try {
-      const host = new URL(ref).hostname.replace("www.", "");
-      if (/google/i.test(host))         return "Google";
-      if (/bing/i.test(host))           return "Bing";
+      var host = new URL(ref).hostname.replace("www.", "");
+      if (/google/i.test(host))         return "Google Search";
+      if (/bing/i.test(host))           return "Bing Search";
       if (/linkedin/i.test(host))       return "LinkedIn";
       if (/github/i.test(host))         return "GitHub";
-      if (/twitter|x\.com/i.test(host)) return "Twitter / X";
+      if (/twitter|x\.com|t\.co/i.test(host)) return "Twitter / X";
       if (/instagram/i.test(host))      return "Instagram";
       if (/facebook/i.test(host))       return "Facebook";
       if (/youtube/i.test(host))        return "YouTube";
+      if (/whatsapp/i.test(host))       return "WhatsApp";
+      if (/reddit/i.test(host))         return "Reddit";
       return host;
-    } catch { return ref; }
+    } catch(e) { return ref; }
+  }
+
+  function utmInfo() {
+    var p = new URLSearchParams(window.location.search);
+    var parts = [];
+    if (p.get("utm_source"))   parts.push("Source: " + p.get("utm_source"));
+    if (p.get("utm_medium"))   parts.push("Medium: " + p.get("utm_medium"));
+    if (p.get("utm_campaign")) parts.push("Campaign: " + p.get("utm_campaign"));
+    return parts.length ? parts.join(" | ") : null;
   }
 
   function formatDuration(ms) {
-    const s = Math.floor(ms / 1000);
+    var s = Math.floor(ms / 1000);
     if (s < 60)   return s + "s";
     if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
     return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
   }
 
-  function utmInfo() {
-    const p = new URLSearchParams(window.location.search);
-    const parts = [];
-    if (p.get("utm_source"))   parts.push("Source: " + p.get("utm_source"));
-    if (p.get("utm_medium"))   parts.push("Medium: " + p.get("utm_medium"));
-    if (p.get("utm_campaign")) parts.push("Campaign: " + p.get("utm_campaign"));
-    return parts.length ? parts.join(" | ") : null;
+  function scrolledAlready(n) {
+    for (var i = 0; i < session.scrollFired.length; i++) {
+      if (session.scrollFired[i] === n) return true;
+    }
+    return false;
   }
 
   /* ─── SEND VISIT NOTIFICATION ─────────────────────────────── */
@@ -118,29 +173,34 @@
     if (session.visitSent) return;
     session.visitSent = true;
 
-    const ua       = navigator.userAgent;
-    const lang     = navigator.language || "?";
-    const tz       = Intl.DateTimeFormat().resolvedOptions().timeZone || "?";
-    const screenSz = screen.width + "x" + screen.height;
-    const viewport = window.innerWidth + "x" + window.innerHeight;
-    const ref      = referrerLabel(document.referrer);
-    const utm      = utmInfo();
-    const now      = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
-    const devIcon  = deviceEmoji(ua);
+    var lang     = navigator.language || "?";
+    var tz       = Intl.DateTimeFormat().resolvedOptions().timeZone || "?";
+    var screenSz = screen.width + "x" + screen.height;
+    var viewport = window.innerWidth + "x" + window.innerHeight;
+    var ref      = referrerLabel(document.referrer);
+    var utm      = utmInfo();
+    var now      = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+    var os       = osName(ua);
+    var browser  = browserName(ua);
+    var device   = deviceType(ua);
 
-    let locLine = "Location: Unknown";
+    var locLine;
     if (geo && geo.status === "success") {
       locLine = "Location: " + geo.city + ", " + geo.regionName + ", " + geo.country
               + "\nISP: " + geo.isp
-              + "\nOrg: " + geo.org
+              + "\nOrg: " + (geo.org || geo.isp)
               + "\nIP: " + geo.query;
+    } else {
+      locLine = "Location: Unavailable (VPN/CDN/Private IP)";
     }
 
-    let msg = "VISITOR ALERT — Protocol Zero Portfolio\n";
+    var msg = "VISITOR ALERT — Protocol Zero Portfolio\n";
     msg += "================================\n";
-    msg += devIcon + " OS: " + osName(ua) + " | Browser: " + browserName(ua) + "\n";
+    msg += "Device: " + device + "\n";
+    msg += "OS: " + os + "\n";
+    msg += "Browser: " + browser + "\n";
     msg += "Screen: " + screenSz + "  Viewport: " + viewport + "\n";
-    msg += "Lang: " + lang + "  TZ: " + tz + "\n";
+    msg += "Lang: " + lang + "  |  TZ: " + tz + "\n";
     msg += locLine + "\n";
     msg += "================================\n";
     msg += "Referrer: " + ref + "\n";
@@ -151,17 +211,52 @@
     tg(msg);
   }
 
-  /* ─── GEO FETCH + FIRE VISIT ──────────────────────────────── */
-  fetch("https://ip-api.com/json/?fields=status,country,regionName,city,isp,org,query")
-    .then(function(r) { return r.json(); })
-    .then(function(geo) {
-      session.geoInfo = geo;
+  /* ─── GEO FETCH — with dual-API fallback ──────────────────── */
+  var geoFetched = false;
+
+  function tryGeo(url, transform) {
+    return fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) { return transform(data); });
+  }
+
+  // Try ip-api.com first, fall back to ipapi.co
+  tryGeo(
+    "https://ip-api.com/json/?fields=status,country,regionName,city,isp,org,query",
+    function(d) { return d; }
+  ).then(function(geo) {
+    if (!geo || geo.status !== "success") throw new Error("fail");
+    geoFetched = true;
+    sendVisitNotification(geo);
+  }).catch(function() {
+    // fallback
+    tryGeo("https://ipapi.co/json/", function(d) {
+      return {
+        status    : d.error ? "fail" : "success",
+        city      : d.city,
+        regionName: d.region,
+        country   : d.country_name,
+        isp       : d.org,
+        org       : d.org,
+        query     : d.ip,
+      };
+    }).then(function(geo) {
+      geoFetched = true;
       sendVisitNotification(geo);
-    })
-    .catch(function() { sendVisitNotification(null); });
+    }).catch(function() {
+      geoFetched = true;
+      sendVisitNotification(null);
+    });
+  });
+
+  // Safety net: fire visit even if geo takes > 3s (slower networks)
+  setTimeout(function() {
+    if (!session.visitSent) sendVisitNotification(null);
+  }, 3000);
 
   /* ─── SCROLL DEPTH TRACKING ───────────────────────────────── */
   var THRESHOLDS = [25, 50, 75, 100];
+  var scrollTicking = false;
 
   function getScrollPct() {
     var scrolled = window.scrollY || document.documentElement.scrollTop;
@@ -171,47 +266,55 @@
   }
 
   function onScroll() {
-    var pct = getScrollPct();
-    if (pct > session.maxScroll) session.maxScroll = pct;
+    if (scrollTicking) return;
+    scrollTicking = true;
+    requestAnimationFrame(function() {
+      scrollTicking = false;
+      var pct = getScrollPct();
+      if (pct > session.maxScroll) session.maxScroll = pct;
 
-    for (var i = 0; i < THRESHOLDS.length; i++) {
-      var threshold = THRESHOLDS[i];
-      if (pct >= threshold && !session.scrollFired.has(threshold)) {
-        session.scrollFired.add(threshold);
-        var emoji = scrollEmoji(threshold);
-        var msg = emoji + " Scroll Depth: " + threshold + "%\n"
-                + "Page explored: " + threshold + "%\n"
-                + "Time on page: " + formatDuration(Date.now() - session.startTime);
-        tg(msg);
+      for (var i = 0; i < THRESHOLDS.length; i++) {
+        var t = THRESHOLDS[i];
+        if (pct >= t && !scrolledAlready(t)) {
+          session.scrollFired.push(t);
+          var icons = { 25: "eyes", 50: "zap", 75: "fire", 100: "checkered_flag" };
+          var emoji = t >= 100 ? "Finished!" : t + "% explored";
+          var msg = "Scroll Depth: " + t + "%\n"
+                  + emoji + "\n"
+                  + "Time on page: " + formatDuration(Date.now() - session.startTime);
+          tg(msg);
+        }
       }
-    }
+    });
   }
 
   window.addEventListener("scroll", onScroll, { passive: true });
 
   /* ─── CLICK TRACKING ──────────────────────────────────────── */
   document.addEventListener("click", function (e) {
-    var anchor = e.target.closest ? e.target.closest("a") : null;
-    if (!anchor) {
-      var el = e.target;
-      while (el && el !== document) {
-        if (el.tagName === "A") { anchor = el; break; }
-        el = el.parentElement;
-      }
+    // Walk up DOM tree to find nearest anchor
+    var anchor = null;
+    var el = e.target;
+    while (el && el.tagName !== "BODY") {
+      if (el.tagName === "A") { anchor = el; break; }
+      el = el.parentElement;
     }
     if (!anchor) return;
 
     var href = anchor.getAttribute("href") || "";
-    if (href.startsWith("#")) return;   // skip internal anchors
+    if (!href || href.startsWith("#")) return; // skip internal anchors
 
-    var text = (anchor.textContent || "").trim().slice(0, 60) || href;
+    var text = (anchor.textContent || "").trim().replace(/\s+/g, " ").slice(0, 60) || href;
 
-    // Detect project card
+    // Detect project card name
     var projectName = null;
     var card = null;
     var el2 = anchor;
-    while (el2 && el2 !== document) {
-      if (el2.classList && (el2.classList.contains("pc") || el2.classList.contains("project-card") || el2.dataset.project)) {
+    while (el2 && el2.tagName !== "BODY") {
+      if (el2.classList &&
+          (el2.classList.contains("pc") ||
+           el2.classList.contains("project-card") ||
+           el2.dataset.project)) {
         card = el2; break;
       }
       el2 = el2.parentElement;
@@ -221,17 +324,18 @@
       if (heading) projectName = heading.textContent.trim();
     }
 
-    session.clicks.push({ label: text, href: href, ts: Date.now() });
+    session.clicks.push({ label: text, href: href });
     if (projectName) {
       session.projectClicks[projectName] = (session.projectClicks[projectName] || 0) + 1;
     }
 
-    var msg = "LINK CLICKED\n"
-            + "================================\n";
+    var msg = "LINK CLICKED\n";
+    msg += "================================\n";
     if (projectName) msg += "Project: " + projectName + "\n";
     msg += "Text: " + text + "\n";
     msg += "URL: " + href + "\n";
-    msg += "At: " + formatDuration(Date.now() - session.startTime) + " | Scroll: " + session.maxScroll + "%";
+    msg += "At: " + formatDuration(Date.now() - session.startTime)
+         + "  |  Scroll: " + session.maxScroll + "%";
     tg(msg);
   }, true);
 
@@ -241,7 +345,11 @@
     session.summarySent = true;
 
     var duration = Date.now() - session.startTime;
-    var clicks   = session.clicks;
+
+    // Skip extremely short sessions — they are almost always bots
+    if (duration < MIN_SESSION_MS) return;
+
+    var clicks     = session.clicks;
     var projClicks = session.projectClicks;
 
     var msg = "SESSION ENDED — Protocol Zero Portfolio\n";
@@ -267,11 +375,8 @@
       }
     }
 
-    var scrolled = [];
-    session.scrollFired.forEach(function(s) { scrolled.push(s); });
-    scrolled.sort(function(a, b) { return a - b; });
-    if (scrolled.length) {
-      msg += "\nScroll milestones: " + scrolled.map(function(s) { return s + "%"; }).join(" -> ");
+    if (session.scrollFired.length) {
+      msg += "\nScroll milestones: " + session.scrollFired.map(function(s) { return s + "%"; }).join(" > ");
     }
 
     tg(msg);
