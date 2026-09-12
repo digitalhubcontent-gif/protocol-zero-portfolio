@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Protocol Zero — Real-Time Telegram Analytics Tracker v2
  * Fixed: bot filtering, Instagram IAB detection, session dedup,
  *        reliable delivery, session minimum time, better geo fallback
@@ -98,21 +98,45 @@
   }
 
   function browserName(ua) {
-    // Order matters — check specific UA fragments first
-    if (/Instagram/i.test(ua))  return "Instagram IAB";  // Instagram in-app browser
-    if (/FBAV|FBAN/i.test(ua))  return "Facebook IAB";
-    if (/LinkedInApp/i.test(ua)) return "LinkedIn IAB";
-    if (/Twitter/i.test(ua))    return "Twitter IAB";
-    if (/Edg\//i.test(ua))      return "Edge";
-    if (/OPR\//i.test(ua))      return "Opera";
-    if (/SamsungBrowser/i.test(ua)) return "Samsung Browser";
-    if (/Firefox\//i.test(ua))  return "Firefox";
-    if (/CriOS/i.test(ua))      return "Chrome (iOS)";
-    if (/FxiOS/i.test(ua))      return "Firefox (iOS)";
+    // Order matters — most specific checks first
+    if (/Instagram/i.test(ua))        return "Instagram IAB";
+    if (/FBAV|FBAN|FB_IAB/i.test(ua)) return "Facebook IAB";
+    if (/LinkedInApp/i.test(ua))      return "LinkedIn IAB";
+    if (/Twitter/i.test(ua))          return "Twitter IAB";
+    if (/DuckDuckGo/i.test(ua))       return "DuckDuckGo";
+    if (/Vivaldi/i.test(ua))          return "Vivaldi";
+    if (/YaBrowser/i.test(ua))        return "Yandex Browser";
+    if (/UCBrowser/i.test(ua))        return "UC Browser";
+    if (/SamsungBrowser/i.test(ua))   return "Samsung Browser";
+    if (/Edg\//i.test(ua))            return "Edge";
+    if (/OPR\//i.test(ua))            return "Opera";
+    if (/CriOS/i.test(ua))            return "Chrome (iOS)";
+    if (/FxiOS/i.test(ua))            return "Firefox (iOS)";
+    if (/Firefox\//i.test(ua))        return "Firefox";
     if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) return "Safari";
-    if (/Chrome\//i.test(ua))   return "Chrome";
+    // Brave hides itself as Chrome in UA — detected via navigator.brave below
+    if (/Chrome\//i.test(ua))         return "Chrome";
     return "Unknown Browser";
   }
+
+  /* ─── ASYNC BRAVE DETECTION ────────────────────────────────────
+     navigator.brave only exists in Brave Browser.
+     isBrave() returns a Promise<boolean>. We fire a correction note
+     if the visit notification was already sent as "Chrome".
+  ──────────────────────────────────────────────────────────────── */
+  var detectedBrowser = browserName(ua);
+
+  if (window.navigator.brave && typeof window.navigator.brave.isBrave === "function") {
+    window.navigator.brave.isBrave().then(function(isBrave) {
+      if (isBrave) {
+        detectedBrowser = "Brave Browser";
+        if (session.visitSent) {
+          tg("(Correction: last visitor is using Brave Browser, not Chrome)");
+        }
+      }
+    }).catch(function() {});
+  }
+
 
   function deviceType(ua) {
     if (/iPhone/i.test(ua))                       return "iPhone";
@@ -181,7 +205,7 @@
     var utm      = utmInfo();
     var now      = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
     var os       = osName(ua);
-    var browser  = browserName(ua);
+    var browser  = detectedBrowser;   // uses async-correctable Brave-aware variable
     var device   = deviceType(ua);
 
     var locLine;
@@ -190,6 +214,13 @@
               + "\nISP: " + geo.isp
               + "\nOrg: " + (geo.org || geo.isp)
               + "\nIP: " + geo.query;
+
+      // Add lat/lon + Google Maps link if available
+      if (geo.lat && geo.lon) {
+        var mapsUrl = "https://www.google.com/maps?q=" + geo.lat + "," + geo.lon;
+        locLine += "\nCoords: " + geo.lat + ", " + geo.lon
+                + "\nMaps: " + mapsUrl;
+      }
     } else {
       locLine = "Location: Unavailable (VPN/CDN/Private IP)";
     }
@@ -220,16 +251,16 @@
       .then(function(data) { return transform(data); });
   }
 
-  // Try ip-api.com first, fall back to ipapi.co
+  // Try ip-api.com first (includes lat/lon), fall back to ipapi.co
   tryGeo(
-    "https://ip-api.com/json/?fields=status,country,regionName,city,isp,org,query",
+    "https://ip-api.com/json/?fields=status,country,regionName,city,isp,org,query,lat,lon",
     function(d) { return d; }
   ).then(function(geo) {
     if (!geo || geo.status !== "success") throw new Error("fail");
     geoFetched = true;
     sendVisitNotification(geo);
   }).catch(function() {
-    // fallback
+    // fallback — ipapi.co also returns lat/lon
     tryGeo("https://ipapi.co/json/", function(d) {
       return {
         status    : d.error ? "fail" : "success",
@@ -239,6 +270,8 @@
         isp       : d.org,
         org       : d.org,
         query     : d.ip,
+        lat       : d.latitude,
+        lon       : d.longitude,
       };
     }).then(function(geo) {
       geoFetched = true;
